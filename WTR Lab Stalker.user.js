@@ -2,7 +2,7 @@
 // @name         WTR Lab Stalker
 // @namespace    https://docs.scriptcat.org/en/
 // @version      0.2.4
-// @description  Logo-activated WTR Lab user search that hijacks the navbar search field.
+// @description  Find WTR Lab user profiles from the navbar with a logo-activated search mode.
 // @author       MasuRii
 // @match        https://wtr-lab.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=wtr-lab.com
