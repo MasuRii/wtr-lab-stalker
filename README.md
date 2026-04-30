@@ -8,6 +8,8 @@
   <a href="https://wtr-lab.com/"><img alt="Target: wtr-lab.com" src="https://img.shields.io/badge/target-wtr--lab.com-b11226"></a>
 </p>
 
+<img width="521" height="175" alt="image" src="https://github.com/user-attachments/assets/a3ec1bee-dcee-4feb-aef9-99ab93ad7c74" />
+
 WTR Lab Stalker is a lightweight userscript that turns the WTR-LAB logo icon into a user-search toggle. When activated, the logo turns red and the existing navbar search field searches WTR Lab users instead of novels.
 
 [Install from GitHub](https://github.com/MasuRii/wtr-lab-stalker/raw/main/WTR%20Lab%20Stalker.user.js)
