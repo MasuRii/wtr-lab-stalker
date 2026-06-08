@@ -1,10 +1,98 @@
-// @ts-nocheck
 (function () {
   'use strict';
 
-  const SCRIPT_ID = 'wtr-user-finder';
+  type FetchInput = Parameters<typeof window.fetch>[0];
+  type FetchInit = Parameters<typeof window.fetch>[1];
+  type UserSource = 'user-search' | 'leaderboard';
+
+  interface RawUser {
+    id?: unknown;
+    user_name?: unknown;
+    username?: unknown;
+    name?: unknown;
+    label?: unknown;
+    member_status?: unknown;
+    member?: unknown;
+    role?: unknown;
+    rank?: unknown;
+    view?: unknown;
+    exp?: unknown;
+    review_count?: unknown;
+    ticket_count?: unknown;
+    giveaway_wins?: unknown;
+  }
+
+  interface NormalizedUser {
+    id: string;
+    name: string;
+    member: string;
+    role: number | null;
+    source: UserSource;
+    rank: number | null;
+    view: unknown;
+    exp: unknown;
+    reviewCount: unknown;
+    ticketCount: unknown;
+    giveawayWins: unknown;
+  }
+
+  interface UserSearchPayload {
+    success?: boolean;
+    message?: string;
+    data?: RawUser[];
+  }
+
+  interface LeaderboardPageProps {
+    base_rank?: unknown;
+    users?: RawUser[];
+  }
+
+  interface LeaderboardPayload {
+    pageProps?: LeaderboardPageProps;
+  }
+
+  interface FallbackCache {
+    createdAt?: unknown;
+    users?: NormalizedUser[];
+  }
+
+  interface CurrentSearchState {
+    query: string;
+    apiUsers: NormalizedUser[];
+    fallbackUsers: NormalizedUser[];
+    nextFallbackPage: number;
+    exhausted: boolean;
+    loadingMore: boolean;
+  }
+
+  interface RenderOptions {
+    showLoadMore?: boolean;
+    loading?: boolean;
+  }
+
+  interface UserSearchError extends Error {
+    code?: 'UNAUTHORIZED';
+  }
+
+  interface MountObserver extends MutationObserver {
+    mountTimer?: number;
+  }
+
+  interface NextDataWindow extends Window {
+    __NEXT_DATA__?: { buildId?: unknown };
+  }
+
+  const SCRIPT_ID = 'wtr-lab-stalker';
+  const LEGACY_SCRIPT_ID = 'wtr-user-finder';
   const STYLE_ID = `${SCRIPT_ID}-style`;
-  const ACTIVE_CLASS = 'wtr-user-stalker-mode';
+  const ACTIVE_CLASS = `${SCRIPT_ID}-mode`;
+  const LEGACY_ACTIVE_CLASS = 'wtr-user-stalker-mode';
+  const MOBILE_SEARCH_CLASS = `${SCRIPT_ID}-mobile-search`;
+  const LEGACY_MOBILE_SEARCH_CLASS = `${LEGACY_SCRIPT_ID}-mobile-search`;
+  const INPUT_BOUND_DATA_KEY = 'wtrLabStalkerBound';
+  const LEGACY_INPUT_BOUND_DATA_KEY = 'wtrUserFinderBound';
+  const LOGO_BOUND_DATA_KEY = 'wtrLabStalkerLogoBound';
+  const LEGACY_LOGO_BOUND_DATA_KEY = 'wtrUserFinderLogoBound';
   const MIN_QUERY_LENGTH = 2;
   const SEARCH_LIMIT = 10;
   const FALLBACK_PAGES_PER_SORT = 2;
@@ -13,32 +101,41 @@
   const FALLBACK_SORTS = ['view', 'review_count', 'exp', 'ticket_count', 'giveaway_wins'];
   const FALLBACK_CACHE_TTL_MS = 15 * 60 * 1000;
 
+  function getErrorMessage(error: unknown, fallbackMessage: string): string {
+    return error instanceof Error ? error.message : fallbackMessage;
+  }
+
+  function isUnauthorizedError(error: unknown): error is UserSearchError {
+    return error instanceof Error && (error as UserSearchError).code === 'UNAUTHORIZED';
+  }
+
   let activeRequestId = 0;
   let activeMode = false;
   let lastQuery = '';
   let debounceTimer = 0;
-  let fallbackIndexPromise = null;
-  let mountedInput = null;
-  let mountedForm = null;
-  let mountedMenu = null;
+  let fallbackIndexPromise: Promise<NormalizedUser[]> | null = null;
+  let mountedInput: HTMLInputElement | null = null;
+  let mountedForm: HTMLFormElement | null = null;
+  let mountedMenu: HTMLElement | null = null;
   let originalPlaceholder = '';
   let nativeSearchGuardInstalled = false;
-  let currentSearchState = null;
-  const leaderboardPageCache = new Map();
+  let currentSearchState: CurrentSearchState | null = null;
+  const leaderboardPageCache = new Map<string, Promise<NormalizedUser[]>>();
 
-  function getRequestUrl(input) {
+  function getRequestUrl(input: FetchInput): string {
     if (typeof input === 'string') return input;
-    if (input && typeof input.url === 'string') return input.url;
+    if (input instanceof URL) return input.href;
+    if (input && typeof input === 'object' && 'url' in input && typeof input.url === 'string') return input.url;
     return String(input || '');
   }
 
-  function getRequestMethod(input, init) {
-    if (init && init.method) return String(init.method).toUpperCase();
-    if (input && input.method) return String(input.method).toUpperCase();
+  function getRequestMethod(input: FetchInput, init: FetchInit): string {
+    if (init?.method) return String(init.method).toUpperCase();
+    if (input && typeof input === 'object' && 'method' in input && input.method) return String(input.method).toUpperCase();
     return 'GET';
   }
 
-  function isNativeNovelSearchRequest(input, init) {
+  function isNativeNovelSearchRequest(input: FetchInput, init?: FetchInit): boolean {
     if (!activeMode) return false;
 
     const url = getRequestUrl(input);
@@ -52,20 +149,20 @@
     }
   }
 
-  function emptyNovelSearchResponse() {
+  function emptyNovelSearchResponse(): Response {
     return new Response(JSON.stringify({ success: true, data: [] }), {
       status: 200,
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
     });
   }
 
-  function installNativeSearchGuard() {
+  function installNativeSearchGuard(): void {
     if (nativeSearchGuardInstalled || typeof window.fetch !== 'function') return;
 
     nativeSearchGuardInstalled = true;
     const nativeFetch = window.fetch.bind(window);
 
-    window.fetch = function guardedFetch(input, init) {
+    window.fetch = function guardedFetch(input: FetchInput, init?: FetchInit): Promise<Response> {
       if (isNativeNovelSearchRequest(input, init)) {
         return Promise.resolve(emptyNovelSearchResponse());
       }
@@ -74,7 +171,7 @@
     };
   }
 
-  function injectStyle() {
+  function injectStyle(): void {
     if (document.getElementById(STYLE_ID)) return;
 
     const style = document.createElement('style');
@@ -138,13 +235,16 @@
         display: none !important;
       }
 
-      body.${ACTIVE_CLASS} nav .wtr-user-finder-mobile-search {
+      body.${ACTIVE_CLASS} nav .${MOBILE_SEARCH_CLASS},
+      body.${LEGACY_ACTIVE_CLASS} nav .${LEGACY_MOBILE_SEARCH_CLASS} {
         border-color: #b11226 !important;
         color: #b11226 !important;
       }
 
-      body.${ACTIVE_CLASS} nav .wtr-user-finder-mobile-search svg,
-      body.${ACTIVE_CLASS} nav .wtr-user-finder-mobile-search use {
+      body.${ACTIVE_CLASS} nav .${MOBILE_SEARCH_CLASS} svg,
+      body.${ACTIVE_CLASS} nav .${MOBILE_SEARCH_CLASS} use,
+      body.${LEGACY_ACTIVE_CLASS} nav .${LEGACY_MOBILE_SEARCH_CLASS} svg,
+      body.${LEGACY_ACTIVE_CLASS} nav .${LEGACY_MOBILE_SEARCH_CLASS} use {
         color: #b11226 !important;
         fill: #b11226 !important;
       }
@@ -171,7 +271,8 @@
         box-shadow: 0 2px 8px rgba(0, 0, 0, .16);
       }
 
-      body.${ACTIVE_CLASS} .${SCRIPT_ID}-menu.is-open {
+      body.${ACTIVE_CLASS} .${SCRIPT_ID}-menu.is-open,
+      body.${LEGACY_ACTIVE_CLASS} .${LEGACY_SCRIPT_ID}-menu.is-open {
         display: block;
       }
 
@@ -266,42 +367,43 @@
     document.head.appendChild(style);
   }
 
-  function getLocale() {
+  function getLocale(): string {
     const match = window.location.pathname.match(/^\/([a-z]{2})(?:\/|$)/i);
-    return match ? match[1] : 'en';
+    return match?.[1] ?? 'en';
   }
 
-  function getBuildId() {
-    if (window.__NEXT_DATA__ && window.__NEXT_DATA__.buildId) {
-      return window.__NEXT_DATA__.buildId;
+  function getBuildId(): string | null {
+    const nextData = (window as NextDataWindow).__NEXT_DATA__;
+    if (nextData?.buildId) {
+      return String(nextData.buildId);
     }
 
     for (const script of document.scripts) {
       const src = script.src || '';
       const match = src.match(/\/_next\/static\/([^/]+)\/_buildManifest\.js/);
-      if (match) return match[1];
+      if (match?.[1]) return match[1];
     }
 
     return null;
   }
 
-  function profileHref(userId) {
+  function profileHref(userId: string): string {
     return `/${getLocale()}/profile/${encodeURIComponent(userId)}`;
   }
 
-  function cleanName(value) {
+  function cleanName(value: unknown): string {
     return typeof value === 'string' ? value.trim() : '';
   }
 
-  function fallbackUserName(userId) {
+  function fallbackUserName(userId: unknown): string {
     const prefix = String(userId || '').split('-')[0] || 'unknown';
     return `User-${prefix}`;
   }
 
-  function normalizeUser(raw, source) {
-    const id = raw && raw.id ? String(raw.id) : '';
-    if (!id) return null;
+  function normalizeUser(raw: RawUser | null | undefined, source: UserSource): NormalizedUser | null {
+    if (!raw?.id) return null;
 
+    const id = String(raw.id);
     const name = cleanName(raw.user_name) || cleanName(raw.username) || cleanName(raw.name) || cleanName(raw.label) || fallbackUserName(id);
     const member = cleanName(raw.member_status) || cleanName(raw.member) || 'free';
     const role = Number.isFinite(Number(raw.role)) ? Number(raw.role) : null;
@@ -321,9 +423,9 @@
     };
   }
 
-  function uniqueUsers(users) {
-    const seen = new Set();
-    const result = [];
+  function uniqueUsers(users: Array<NormalizedUser | null>): NormalizedUser[] {
+    const seen = new Set<string>();
+    const result: NormalizedUser[] = [];
 
     for (const user of users) {
       if (!user || seen.has(user.id)) continue;
@@ -334,13 +436,13 @@
     return result;
   }
 
-  async function readJson(response) {
+  async function readJson<T>(response: Response): Promise<T | null> {
     const text = await response.text();
     if (!text) return null;
-    return JSON.parse(text);
+    return JSON.parse(text) as T;
   }
 
-  async function searchUsersApi(query) {
+  async function searchUsersApi(query: string): Promise<NormalizedUser[]> {
     const params = new URLSearchParams({ q: query, limit: String(SEARCH_LIMIT) });
     const response = await fetch(`/api/users/search?${params.toString()}`, {
       credentials: 'include',
@@ -348,16 +450,14 @@
     });
 
     if (response.status === 401) {
-      const error = new Error('User search requires a logged-in session.');
-      error.code = 'UNAUTHORIZED';
-      throw error;
+      throw Object.assign(new Error('User search requires a logged-in session.'), { code: 'UNAUTHORIZED' as const });
     }
 
     if (!response.ok) {
       throw new Error(`User search failed with HTTP ${response.status}.`);
     }
 
-    const payload = await readJson(response);
+    const payload = await readJson<UserSearchPayload>(response);
     if (!payload || payload.success === false) {
       throw new Error((payload && payload.message) || 'User search failed.');
     }
@@ -365,21 +465,29 @@
     return uniqueUsers((payload.data || []).map((item) => normalizeUser(item, 'user-search')));
   }
 
-  function fallbackCacheKey() {
-    return `${SCRIPT_ID}:fallback:${getLocale()}:${getBuildId() || 'unknown'}`;
+  function fallbackCacheKey(scriptId = SCRIPT_ID): string {
+    return `${scriptId}:fallback:${getLocale()}:${getBuildId() || 'unknown'}`;
   }
 
-  function readFallbackCache() {
+  function getFreshFallbackUsers(cached: FallbackCache | null): NormalizedUser[] | null {
+    if (!cached || Date.now() - Number(cached.createdAt) > FALLBACK_CACHE_TTL_MS) return null;
+    return cached.users || null;
+  }
+
+  function readFallbackCache(): NormalizedUser[] | null {
     try {
-      const cached = JSON.parse(sessionStorage.getItem(fallbackCacheKey()) || 'null');
-      if (!cached || Date.now() - cached.createdAt > FALLBACK_CACHE_TTL_MS) return null;
-      return cached.users || null;
+      const cached = JSON.parse(sessionStorage.getItem(fallbackCacheKey()) || 'null') as FallbackCache | null;
+      const cachedUsers = getFreshFallbackUsers(cached);
+      if (cachedUsers) return cachedUsers;
+
+      const legacyCached = JSON.parse(sessionStorage.getItem(fallbackCacheKey(LEGACY_SCRIPT_ID)) || 'null') as FallbackCache | null;
+      return getFreshFallbackUsers(legacyCached);
     } catch (_) {
       return null;
     }
   }
 
-  function writeFallbackCache(users) {
+  function writeFallbackCache(users: NormalizedUser[]): void {
     try {
       sessionStorage.setItem(fallbackCacheKey(), JSON.stringify({ createdAt: Date.now(), users }));
     } catch (_) {
@@ -387,10 +495,11 @@
     }
   }
 
-  async function fetchLeaderboardPage(buildId, sort, page) {
+  async function fetchLeaderboardPage(buildId: string, sort: string, page: number): Promise<NormalizedUser[]> {
     const locale = getLocale();
     const cacheKey = `${buildId}:${locale}:${sort}:${page}`;
-    if (leaderboardPageCache.has(cacheKey)) return leaderboardPageCache.get(cacheKey);
+    const cachedPage = leaderboardPageCache.get(cacheKey);
+    if (cachedPage) return cachedPage;
 
     const pagePromise = (async () => {
       const params = new URLSearchParams({ sort, page: String(page), locale });
@@ -402,18 +511,18 @@
 
       if (!response.ok) return [];
 
-      const payload = await readJson(response);
+      const payload = await readJson<LeaderboardPayload>(response);
       const pageProps = payload && payload.pageProps;
       const baseRank = Number(pageProps && pageProps.base_rank) || 0;
 
-      return ((pageProps && pageProps.users) || []).map((user, index) => normalizeUser({ ...user, rank: baseRank + index + 1 }, 'leaderboard'));
+      return uniqueUsers((pageProps?.users || []).map((user, index) => normalizeUser({ ...user, rank: baseRank + index + 1 }, 'leaderboard')));
     })();
 
     leaderboardPageCache.set(cacheKey, pagePromise);
     return pagePromise;
   }
 
-  async function getFallbackIndex() {
+  async function getFallbackIndex(): Promise<NormalizedUser[]> {
     const cachedUsers = readFallbackCache();
     if (cachedUsers) return cachedUsers;
 
@@ -423,7 +532,7 @@
       const buildId = getBuildId();
       if (!buildId) return [];
 
-      const requests = [];
+      const requests: Array<Promise<NormalizedUser[]>> = [];
       for (const sort of FALLBACK_SORTS) {
         for (let page = 1; page <= FALLBACK_PAGES_PER_SORT; page += 1) {
           requests.push(fetchLeaderboardPage(buildId, sort, page));
@@ -431,7 +540,7 @@
       }
 
       const pages = await Promise.all(requests);
-      const users = uniqueUsers(pages.flat().filter(Boolean));
+      const users = uniqueUsers(pages.flat());
       writeFallbackCache(users);
       return users;
     })().finally(() => {
@@ -441,11 +550,11 @@
     return fallbackIndexPromise;
   }
 
-  function userMatchesQuery(user, needle) {
+  function userMatchesQuery(user: NormalizedUser, needle: string): boolean {
     return user.name.toLocaleLowerCase().includes(needle) || user.id.toLocaleLowerCase() === needle;
   }
 
-  function userSearchRank(user, needle) {
+  function userSearchRank(user: NormalizedUser, needle: string): number {
     const name = user.name.toLocaleLowerCase();
     const id = user.id.toLocaleLowerCase();
 
@@ -456,7 +565,7 @@
     return 4;
   }
 
-  function sortUsersForQuery(users, query) {
+  function sortUsersForQuery(users: NormalizedUser[], query: string): NormalizedUser[] {
     const needle = query.toLocaleLowerCase();
 
     return [...users].sort((a, b) => {
@@ -470,12 +579,12 @@
     });
   }
 
-  async function searchLeaderboardPages(query, startPage, pageCount) {
+  async function searchLeaderboardPages(query: string, startPage: number, pageCount: number): Promise<NormalizedUser[]> {
     const buildId = getBuildId();
     if (!buildId) return [];
 
     const needle = query.toLocaleLowerCase();
-    const requests = [];
+    const requests: Array<Promise<NormalizedUser[]>> = [];
     const lastPage = Math.min(startPage + pageCount - 1, MAX_FALLBACK_PAGE);
 
     for (const sort of FALLBACK_SORTS) {
@@ -485,31 +594,31 @@
     }
 
     const pages = await Promise.all(requests);
-    const users = uniqueUsers(pages.flat().filter(Boolean));
+    const users = uniqueUsers(pages.flat());
     return sortUsersForQuery(users.filter((user) => userMatchesQuery(user, needle)), query);
   }
 
-  async function searchLeaderboardFallback(query) {
+  async function searchLeaderboardFallback(query: string): Promise<NormalizedUser[]> {
     return searchLeaderboardPages(query, 1, FALLBACK_PAGES_PER_SORT);
   }
 
-  function mergeSearchResults(apiUsers, fallbackUsers, query, limit = SEARCH_LIMIT) {
+  function mergeSearchResults(apiUsers: NormalizedUser[], fallbackUsers: NormalizedUser[], query: string, limit = SEARCH_LIMIT): NormalizedUser[] {
     return sortUsersForQuery(uniqueUsers([...apiUsers, ...fallbackUsers]), query).slice(0, limit);
   }
 
-  function hasFallbackOnlyResult(apiUsers, fallbackUsers) {
+  function hasFallbackOnlyResult(apiUsers: NormalizedUser[], fallbackUsers: NormalizedUser[]): boolean {
     const apiIds = new Set(apiUsers.map((user) => user.id));
     return fallbackUsers.some((user) => !apiIds.has(user.id));
   }
 
-  function formatNumber(value) {
+  function formatNumber(value: unknown): string {
     if (value === null || value === undefined || value === '') return '';
     const number = Number(value);
     return Number.isFinite(number) ? number.toLocaleString() : String(value);
   }
 
-  function resultMeta(user) {
-    const parts = [];
+  function resultMeta(user: NormalizedUser): string {
+    const parts: string[] = [];
     if (user.member) parts.push(user.member);
     if (user.role !== null) parts.push(`role ${user.role}`);
     if (user.rank) parts.push(`#${user.rank}`);
@@ -518,16 +627,16 @@
     return parts.join(' · ');
   }
 
-  function setMenuOpen(isOpen) {
+  function setMenuOpen(isOpen: boolean): void {
     if (mountedMenu) mountedMenu.classList.toggle('is-open', isOpen);
   }
 
-  function clearMenu() {
+  function clearMenu(): void {
     const list = mountedMenu && mountedMenu.querySelector(`.${SCRIPT_ID}-menu-list`);
     if (list) list.innerHTML = '';
   }
 
-  function setStatus(message) {
+  function setStatus(message: string): void {
     const list = mountedMenu && mountedMenu.querySelector(`.${SCRIPT_ID}-menu-list`);
     if (!list) return;
 
@@ -539,7 +648,7 @@
     setMenuOpen(true);
   }
 
-  function renderResults(users, note, options = {}) {
+  function renderResults(users: NormalizedUser[], note: string, options: RenderOptions = {}): void {
     const list = mountedMenu && mountedMenu.querySelector(`.${SCRIPT_ID}-menu-list`);
     if (!list) return;
 
@@ -590,7 +699,7 @@
     setMenuOpen(true);
   }
 
-  function renderCurrentSearch(note = '') {
+  function renderCurrentSearch(note = ''): void {
     if (!currentSearchState) return;
 
     const fallbackLimit = Math.max(SEARCH_LIMIT, currentSearchState.fallbackUsers.length + currentSearchState.apiUsers.length);
@@ -602,7 +711,7 @@
     });
   }
 
-  async function loadMoreRelevantUsers() {
+  async function loadMoreRelevantUsers(): Promise<void> {
     if (!currentSearchState || currentSearchState.loadingMore || currentSearchState.exhausted) return;
 
     const state = currentSearchState;
@@ -624,11 +733,11 @@
       if (requestId !== activeRequestId || state !== currentSearchState || !activeMode) return;
 
       state.loadingMore = false;
-      renderCurrentSearch(error && error.message ? error.message : 'Could not load more users.');
+      renderCurrentSearch(getErrorMessage(error, 'Could not load more users.'));
     }
   }
 
-  async function runSearch(query) {
+  async function runSearch(query: string): Promise<void> {
     const requestId = ++activeRequestId;
     lastQuery = query;
 
@@ -660,7 +769,7 @@
     } catch (error) {
       if (requestId !== activeRequestId || query !== lastQuery || !activeMode) return;
 
-      if (error && error.code === 'UNAUTHORIZED') {
+      if (isUnauthorizedError(error)) {
         setStatus('Login required for full user search. Checking leaderboard matches...');
         const fallbackUsers = await searchLeaderboardFallback(query);
         if (requestId !== activeRequestId || query !== lastQuery || !activeMode) return;
@@ -689,25 +798,25 @@
         exhausted: FALLBACK_PAGES_PER_SORT >= MAX_FALLBACK_PAGE,
         loadingMore: false,
       };
-      renderCurrentSearch(fallbackUsers.length ? 'Showing leaderboard matches because user API search failed.' : (error && error.message ? error.message : 'User search failed.'));
+      renderCurrentSearch(fallbackUsers.length ? 'Showing leaderboard matches because user API search failed.' : getErrorMessage(error, 'User search failed.'));
     }
   }
 
-  function isMobileViewport() {
+  function isMobileViewport(): boolean {
     return window.matchMedia('(max-width: 991.98px)').matches;
   }
 
-  function getMobileSearchButton() {
+  function getMobileSearchButton(): HTMLButtonElement | null {
     const icon = document.querySelector('nav .d-lg-none use[href="#search"], nav .d-lg-none use[xlink\\:href="#search"]');
     return icon ? icon.closest('button') : null;
   }
 
-  function markMobileSearchButton() {
+  function markMobileSearchButton(): void {
     const button = getMobileSearchButton();
-    if (button) button.classList.add('wtr-user-finder-mobile-search');
+    if (button) button.classList.add(MOBILE_SEARCH_CLASS, LEGACY_MOBILE_SEARCH_CLASS);
   }
 
-  function isInputVisible() {
+  function isInputVisible(): boolean {
     if (!mountedInput) return false;
 
     const style = window.getComputedStyle(mountedInput);
@@ -715,7 +824,7 @@
     return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
   }
 
-  function openMobileSearchIfNeeded() {
+  function openMobileSearchIfNeeded(): void {
     if (!isMobileViewport()) return;
 
     markMobileSearchButton();
@@ -726,12 +835,12 @@
     }
   }
 
-  function activateMode() {
+  function activateMode(): void {
     if (!mountedInput) return;
 
     activeMode = true;
     activeRequestId += 1;
-    document.body.classList.add(ACTIVE_CLASS);
+    document.body.classList.add(ACTIVE_CLASS, LEGACY_ACTIVE_CLASS);
     mountedInput.placeholder = 'Find user...';
     mountedInput.value = '';
     openMobileSearchIfNeeded();
@@ -739,12 +848,12 @@
     window.setTimeout(() => mountedInput && mountedInput.focus(), isMobileViewport() ? 90 : 0);
   }
 
-  function deactivateMode() {
+  function deactivateMode(): void {
     activeMode = false;
     activeRequestId += 1;
     lastQuery = '';
     currentSearchState = null;
-    document.body.classList.remove(ACTIVE_CLASS);
+    document.body.classList.remove(ACTIVE_CLASS, LEGACY_ACTIVE_CLASS);
 
     if (mountedInput) {
       mountedInput.placeholder = originalPlaceholder || 'Search...';
@@ -755,7 +864,7 @@
     setMenuOpen(false);
   }
 
-  function toggleMode(event) {
+  function toggleMode(event: Event): void {
     event.preventDefault();
     event.stopPropagation();
 
@@ -766,8 +875,8 @@
     }
   }
 
-  function ensureMenu(searchInput) {
-    let menu = searchInput.querySelector(`.${SCRIPT_ID}-menu`);
+  function ensureMenu(searchInput: HTMLElement): HTMLElement {
+    let menu = searchInput.querySelector<HTMLElement>(`.${SCRIPT_ID}-menu`);
     if (menu) return menu;
 
     menu = document.createElement('div');
@@ -778,10 +887,11 @@
     return menu;
   }
 
-  function bindSearchHijack(input, form) {
-    if (input.dataset.wtrUserFinderBound === 'true') return;
+  function bindSearchHijack(input: HTMLInputElement, form: HTMLFormElement | null): void {
+    if (input.dataset[INPUT_BOUND_DATA_KEY] === 'true' || input.dataset[LEGACY_INPUT_BOUND_DATA_KEY] === 'true') return;
 
-    input.dataset.wtrUserFinderBound = 'true';
+    input.dataset[INPUT_BOUND_DATA_KEY] = 'true';
+    input.dataset[LEGACY_INPUT_BOUND_DATA_KEY] = 'true';
 
     for (const eventName of ['beforeinput', 'change', 'keyup', 'search']) {
       input.addEventListener(eventName, (event) => {
@@ -811,28 +921,30 @@
       if (event.key === 'Enter') {
         event.preventDefault();
         event.stopImmediatePropagation();
-        const firstResult = mountedMenu && mountedMenu.querySelector(`.${SCRIPT_ID}-result`);
+        const firstResult = mountedMenu?.querySelector<HTMLAnchorElement>(`.${SCRIPT_ID}-result`);
         if (firstResult) window.location.assign(firstResult.href);
       }
     }, true);
 
-    if (form && form.dataset.wtrUserFinderBound !== 'true') {
-      form.dataset.wtrUserFinderBound = 'true';
+    if (form && form.dataset[INPUT_BOUND_DATA_KEY] !== 'true' && form.dataset[LEGACY_INPUT_BOUND_DATA_KEY] !== 'true') {
+      form.dataset[INPUT_BOUND_DATA_KEY] = 'true';
+      form.dataset[LEGACY_INPUT_BOUND_DATA_KEY] = 'true';
       form.addEventListener('submit', (event) => {
         if (!activeMode) return;
 
         event.preventDefault();
         event.stopImmediatePropagation();
-        const firstResult = mountedMenu && mountedMenu.querySelector(`.${SCRIPT_ID}-result`);
+        const firstResult = mountedMenu?.querySelector<HTMLAnchorElement>(`.${SCRIPT_ID}-result`);
         if (firstResult) window.location.assign(firstResult.href);
       }, true);
     }
   }
 
-  function bindLogoIcon(brandIcon) {
-    if (brandIcon.dataset.wtrUserFinderLogoBound === 'true') return;
+  function bindLogoIcon(brandIcon: SVGElement): void {
+    if (brandIcon.dataset[LOGO_BOUND_DATA_KEY] === 'true' || brandIcon.dataset[LEGACY_LOGO_BOUND_DATA_KEY] === 'true') return;
 
-    brandIcon.dataset.wtrUserFinderLogoBound = 'true';
+    brandIcon.dataset[LOGO_BOUND_DATA_KEY] = 'true';
+    brandIcon.dataset[LEGACY_LOGO_BOUND_DATA_KEY] = 'true';
     brandIcon.setAttribute('role', 'button');
     brandIcon.setAttribute('tabindex', '0');
     brandIcon.setAttribute('aria-label', 'Toggle WTR-LAB user stalker search');
@@ -843,15 +955,15 @@
     }, true);
   }
 
-  function mount() {
+  function mount(): boolean {
     injectStyle();
 
     const navbar = document.querySelector('nav');
-    const brand = navbar && navbar.querySelector('.navbar-brand');
-    const brandIcon = brand && brand.querySelector('svg');
-    const searchInput = navbar && navbar.querySelector('.search-input');
-    const input = searchInput && searchInput.querySelector('input[type="search"], input');
-    const form = input && input.closest('form');
+    const brand = navbar?.querySelector<HTMLElement>('.navbar-brand');
+    const brandIcon = brand?.querySelector<SVGElement>('svg');
+    const searchInput = navbar?.querySelector<HTMLElement>('.search-input');
+    const input = searchInput?.querySelector<HTMLInputElement>('input[type="search"], input');
+    const form = input?.closest<HTMLFormElement>('form') ?? null;
 
     if (!navbar || !brandIcon || !searchInput || !input) return false;
 
@@ -868,17 +980,17 @@
     return true;
   }
 
-  function start() {
+  function start(): void {
     installNativeSearchGuard();
     mount();
 
-    const observer = new MutationObserver(() => {
+    const observer: MountObserver = new MutationObserver(() => {
       window.clearTimeout(observer.mountTimer);
       observer.mountTimer = window.setTimeout(() => {
         const wasActive = activeMode;
         mount();
         if (wasActive && mountedInput) {
-          document.body.classList.add(ACTIVE_CLASS);
+          document.body.classList.add(ACTIVE_CLASS, LEGACY_ACTIVE_CLASS);
           mountedInput.placeholder = 'Find user...';
         }
       }, 100);

@@ -35,8 +35,8 @@ coverage/
 .tmp/
 temp/
 
-# Legacy local artifact
-wtr-lab-user-finder.user.js
+# Workspace guardrails
+docs/
 
 # Archives
 *.zip

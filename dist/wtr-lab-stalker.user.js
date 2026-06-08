@@ -18,12 +18,19 @@
 /******/ (() => { // webpackBootstrap
 /******/ 	"use strict";
 
-// @ts-nocheck
 (function () {
     'use strict';
-    const SCRIPT_ID = 'wtr-user-finder';
+    const SCRIPT_ID = 'wtr-lab-stalker';
+    const LEGACY_SCRIPT_ID = 'wtr-user-finder';
     const STYLE_ID = `${SCRIPT_ID}-style`;
-    const ACTIVE_CLASS = 'wtr-user-stalker-mode';
+    const ACTIVE_CLASS = `${SCRIPT_ID}-mode`;
+    const LEGACY_ACTIVE_CLASS = 'wtr-user-stalker-mode';
+    const MOBILE_SEARCH_CLASS = `${SCRIPT_ID}-mobile-search`;
+    const LEGACY_MOBILE_SEARCH_CLASS = `${LEGACY_SCRIPT_ID}-mobile-search`;
+    const INPUT_BOUND_DATA_KEY = 'wtrLabStalkerBound';
+    const LEGACY_INPUT_BOUND_DATA_KEY = 'wtrUserFinderBound';
+    const LOGO_BOUND_DATA_KEY = 'wtrLabStalkerLogoBound';
+    const LEGACY_LOGO_BOUND_DATA_KEY = 'wtrUserFinderLogoBound';
     const MIN_QUERY_LENGTH = 2;
     const SEARCH_LIMIT = 10;
     const FALLBACK_PAGES_PER_SORT = 2;
@@ -31,6 +38,12 @@
     const MAX_FALLBACK_PAGE = 50;
     const FALLBACK_SORTS = ['view', 'review_count', 'exp', 'ticket_count', 'giveaway_wins'];
     const FALLBACK_CACHE_TTL_MS = 15 * 60 * 1000;
+    function getErrorMessage(error, fallbackMessage) {
+        return error instanceof Error ? error.message : fallbackMessage;
+    }
+    function isUnauthorizedError(error) {
+        return error instanceof Error && error.code === 'UNAUTHORIZED';
+    }
     let activeRequestId = 0;
     let activeMode = false;
     let lastQuery = '';
@@ -46,14 +59,16 @@
     function getRequestUrl(input) {
         if (typeof input === 'string')
             return input;
-        if (input && typeof input.url === 'string')
+        if (input instanceof URL)
+            return input.href;
+        if (input && typeof input === 'object' && 'url' in input && typeof input.url === 'string')
             return input.url;
         return String(input || '');
     }
     function getRequestMethod(input, init) {
-        if (init && init.method)
+        if (init?.method)
             return String(init.method).toUpperCase();
-        if (input && input.method)
+        if (input && typeof input === 'object' && 'method' in input && input.method)
             return String(input.method).toUpperCase();
         return 'GET';
     }
@@ -152,13 +167,16 @@
         display: none !important;
       }
 
-      body.${ACTIVE_CLASS} nav .wtr-user-finder-mobile-search {
+      body.${ACTIVE_CLASS} nav .${MOBILE_SEARCH_CLASS},
+      body.${LEGACY_ACTIVE_CLASS} nav .${LEGACY_MOBILE_SEARCH_CLASS} {
         border-color: #b11226 !important;
         color: #b11226 !important;
       }
 
-      body.${ACTIVE_CLASS} nav .wtr-user-finder-mobile-search svg,
-      body.${ACTIVE_CLASS} nav .wtr-user-finder-mobile-search use {
+      body.${ACTIVE_CLASS} nav .${MOBILE_SEARCH_CLASS} svg,
+      body.${ACTIVE_CLASS} nav .${MOBILE_SEARCH_CLASS} use,
+      body.${LEGACY_ACTIVE_CLASS} nav .${LEGACY_MOBILE_SEARCH_CLASS} svg,
+      body.${LEGACY_ACTIVE_CLASS} nav .${LEGACY_MOBILE_SEARCH_CLASS} use {
         color: #b11226 !important;
         fill: #b11226 !important;
       }
@@ -185,7 +203,8 @@
         box-shadow: 0 2px 8px rgba(0, 0, 0, .16);
       }
 
-      body.${ACTIVE_CLASS} .${SCRIPT_ID}-menu.is-open {
+      body.${ACTIVE_CLASS} .${SCRIPT_ID}-menu.is-open,
+      body.${LEGACY_ACTIVE_CLASS} .${LEGACY_SCRIPT_ID}-menu.is-open {
         display: block;
       }
 
@@ -281,16 +300,17 @@
     }
     function getLocale() {
         const match = window.location.pathname.match(/^\/([a-z]{2})(?:\/|$)/i);
-        return match ? match[1] : 'en';
+        return match?.[1] ?? 'en';
     }
     function getBuildId() {
-        if (window.__NEXT_DATA__ && window.__NEXT_DATA__.buildId) {
-            return window.__NEXT_DATA__.buildId;
+        const nextData = window.__NEXT_DATA__;
+        if (nextData?.buildId) {
+            return String(nextData.buildId);
         }
         for (const script of document.scripts) {
             const src = script.src || '';
             const match = src.match(/\/_next\/static\/([^/]+)\/_buildManifest\.js/);
-            if (match)
+            if (match?.[1])
                 return match[1];
         }
         return null;
@@ -306,9 +326,9 @@
         return `User-${prefix}`;
     }
     function normalizeUser(raw, source) {
-        const id = raw && raw.id ? String(raw.id) : '';
-        if (!id)
+        if (!raw?.id)
             return null;
+        const id = String(raw.id);
         const name = cleanName(raw.user_name) || cleanName(raw.username) || cleanName(raw.name) || cleanName(raw.label) || fallbackUserName(id);
         const member = cleanName(raw.member_status) || cleanName(raw.member) || 'free';
         const role = Number.isFinite(Number(raw.role)) ? Number(raw.role) : null;
@@ -350,9 +370,7 @@
             headers: { Accept: 'application/json' },
         });
         if (response.status === 401) {
-            const error = new Error('User search requires a logged-in session.');
-            error.code = 'UNAUTHORIZED';
-            throw error;
+            throw Object.assign(new Error('User search requires a logged-in session.'), { code: 'UNAUTHORIZED' });
         }
         if (!response.ok) {
             throw new Error(`User search failed with HTTP ${response.status}.`);
@@ -363,15 +381,22 @@
         }
         return uniqueUsers((payload.data || []).map((item) => normalizeUser(item, 'user-search')));
     }
-    function fallbackCacheKey() {
-        return `${SCRIPT_ID}:fallback:${getLocale()}:${getBuildId() || 'unknown'}`;
+    function fallbackCacheKey(scriptId = SCRIPT_ID) {
+        return `${scriptId}:fallback:${getLocale()}:${getBuildId() || 'unknown'}`;
+    }
+    function getFreshFallbackUsers(cached) {
+        if (!cached || Date.now() - Number(cached.createdAt) > FALLBACK_CACHE_TTL_MS)
+            return null;
+        return cached.users || null;
     }
     function readFallbackCache() {
         try {
             const cached = JSON.parse(sessionStorage.getItem(fallbackCacheKey()) || 'null');
-            if (!cached || Date.now() - cached.createdAt > FALLBACK_CACHE_TTL_MS)
-                return null;
-            return cached.users || null;
+            const cachedUsers = getFreshFallbackUsers(cached);
+            if (cachedUsers)
+                return cachedUsers;
+            const legacyCached = JSON.parse(sessionStorage.getItem(fallbackCacheKey(LEGACY_SCRIPT_ID)) || 'null');
+            return getFreshFallbackUsers(legacyCached);
         }
         catch (_) {
             return null;
@@ -388,8 +413,9 @@
     async function fetchLeaderboardPage(buildId, sort, page) {
         const locale = getLocale();
         const cacheKey = `${buildId}:${locale}:${sort}:${page}`;
-        if (leaderboardPageCache.has(cacheKey))
-            return leaderboardPageCache.get(cacheKey);
+        const cachedPage = leaderboardPageCache.get(cacheKey);
+        if (cachedPage)
+            return cachedPage;
         const pagePromise = (async () => {
             const params = new URLSearchParams({ sort, page: String(page), locale });
             const url = `/_next/data/${encodeURIComponent(buildId)}/${locale}/leaderboard.json?${params.toString()}`;
@@ -402,7 +428,7 @@
             const payload = await readJson(response);
             const pageProps = payload && payload.pageProps;
             const baseRank = Number(pageProps && pageProps.base_rank) || 0;
-            return ((pageProps && pageProps.users) || []).map((user, index) => normalizeUser({ ...user, rank: baseRank + index + 1 }, 'leaderboard'));
+            return uniqueUsers((pageProps?.users || []).map((user, index) => normalizeUser({ ...user, rank: baseRank + index + 1 }, 'leaderboard')));
         })();
         leaderboardPageCache.set(cacheKey, pagePromise);
         return pagePromise;
@@ -424,7 +450,7 @@
                 }
             }
             const pages = await Promise.all(requests);
-            const users = uniqueUsers(pages.flat().filter(Boolean));
+            const users = uniqueUsers(pages.flat());
             writeFallbackCache(users);
             return users;
         })().finally(() => {
@@ -476,7 +502,7 @@
             }
         }
         const pages = await Promise.all(requests);
-        const users = uniqueUsers(pages.flat().filter(Boolean));
+        const users = uniqueUsers(pages.flat());
         return sortUsersForQuery(users.filter((user) => userMatchesQuery(user, needle)), query);
     }
     async function searchLeaderboardFallback(query) {
@@ -602,7 +628,7 @@
             if (requestId !== activeRequestId || state !== currentSearchState || !activeMode)
                 return;
             state.loadingMore = false;
-            renderCurrentSearch(error && error.message ? error.message : 'Could not load more users.');
+            renderCurrentSearch(getErrorMessage(error, 'Could not load more users.'));
         }
     }
     async function runSearch(query) {
@@ -635,7 +661,7 @@
         catch (error) {
             if (requestId !== activeRequestId || query !== lastQuery || !activeMode)
                 return;
-            if (error && error.code === 'UNAUTHORIZED') {
+            if (isUnauthorizedError(error)) {
                 setStatus('Login required for full user search. Checking leaderboard matches...');
                 const fallbackUsers = await searchLeaderboardFallback(query);
                 if (requestId !== activeRequestId || query !== lastQuery || !activeMode)
@@ -663,7 +689,7 @@
                 exhausted: FALLBACK_PAGES_PER_SORT >= MAX_FALLBACK_PAGE,
                 loadingMore: false,
             };
-            renderCurrentSearch(fallbackUsers.length ? 'Showing leaderboard matches because user API search failed.' : (error && error.message ? error.message : 'User search failed.'));
+            renderCurrentSearch(fallbackUsers.length ? 'Showing leaderboard matches because user API search failed.' : getErrorMessage(error, 'User search failed.'));
         }
     }
     function isMobileViewport() {
@@ -676,7 +702,7 @@
     function markMobileSearchButton() {
         const button = getMobileSearchButton();
         if (button)
-            button.classList.add('wtr-user-finder-mobile-search');
+            button.classList.add(MOBILE_SEARCH_CLASS, LEGACY_MOBILE_SEARCH_CLASS);
     }
     function isInputVisible() {
         if (!mountedInput)
@@ -700,7 +726,7 @@
             return;
         activeMode = true;
         activeRequestId += 1;
-        document.body.classList.add(ACTIVE_CLASS);
+        document.body.classList.add(ACTIVE_CLASS, LEGACY_ACTIVE_CLASS);
         mountedInput.placeholder = 'Find user...';
         mountedInput.value = '';
         openMobileSearchIfNeeded();
@@ -712,7 +738,7 @@
         activeRequestId += 1;
         lastQuery = '';
         currentSearchState = null;
-        document.body.classList.remove(ACTIVE_CLASS);
+        document.body.classList.remove(ACTIVE_CLASS, LEGACY_ACTIVE_CLASS);
         if (mountedInput) {
             mountedInput.placeholder = originalPlaceholder || 'Search...';
             mountedInput.value = '';
@@ -742,9 +768,10 @@
         return menu;
     }
     function bindSearchHijack(input, form) {
-        if (input.dataset.wtrUserFinderBound === 'true')
+        if (input.dataset[INPUT_BOUND_DATA_KEY] === 'true' || input.dataset[LEGACY_INPUT_BOUND_DATA_KEY] === 'true')
             return;
-        input.dataset.wtrUserFinderBound = 'true';
+        input.dataset[INPUT_BOUND_DATA_KEY] = 'true';
+        input.dataset[LEGACY_INPUT_BOUND_DATA_KEY] = 'true';
         for (const eventName of ['beforeinput', 'change', 'keyup', 'search']) {
             input.addEventListener(eventName, (event) => {
                 if (!activeMode)
@@ -771,28 +798,30 @@
             if (event.key === 'Enter') {
                 event.preventDefault();
                 event.stopImmediatePropagation();
-                const firstResult = mountedMenu && mountedMenu.querySelector(`.${SCRIPT_ID}-result`);
+                const firstResult = mountedMenu?.querySelector(`.${SCRIPT_ID}-result`);
                 if (firstResult)
                     window.location.assign(firstResult.href);
             }
         }, true);
-        if (form && form.dataset.wtrUserFinderBound !== 'true') {
-            form.dataset.wtrUserFinderBound = 'true';
+        if (form && form.dataset[INPUT_BOUND_DATA_KEY] !== 'true' && form.dataset[LEGACY_INPUT_BOUND_DATA_KEY] !== 'true') {
+            form.dataset[INPUT_BOUND_DATA_KEY] = 'true';
+            form.dataset[LEGACY_INPUT_BOUND_DATA_KEY] = 'true';
             form.addEventListener('submit', (event) => {
                 if (!activeMode)
                     return;
                 event.preventDefault();
                 event.stopImmediatePropagation();
-                const firstResult = mountedMenu && mountedMenu.querySelector(`.${SCRIPT_ID}-result`);
+                const firstResult = mountedMenu?.querySelector(`.${SCRIPT_ID}-result`);
                 if (firstResult)
                     window.location.assign(firstResult.href);
             }, true);
         }
     }
     function bindLogoIcon(brandIcon) {
-        if (brandIcon.dataset.wtrUserFinderLogoBound === 'true')
+        if (brandIcon.dataset[LOGO_BOUND_DATA_KEY] === 'true' || brandIcon.dataset[LEGACY_LOGO_BOUND_DATA_KEY] === 'true')
             return;
-        brandIcon.dataset.wtrUserFinderLogoBound = 'true';
+        brandIcon.dataset[LOGO_BOUND_DATA_KEY] = 'true';
+        brandIcon.dataset[LEGACY_LOGO_BOUND_DATA_KEY] = 'true';
         brandIcon.setAttribute('role', 'button');
         brandIcon.setAttribute('tabindex', '0');
         brandIcon.setAttribute('aria-label', 'Toggle WTR-LAB user stalker search');
@@ -806,11 +835,11 @@
     function mount() {
         injectStyle();
         const navbar = document.querySelector('nav');
-        const brand = navbar && navbar.querySelector('.navbar-brand');
-        const brandIcon = brand && brand.querySelector('svg');
-        const searchInput = navbar && navbar.querySelector('.search-input');
-        const input = searchInput && searchInput.querySelector('input[type="search"], input');
-        const form = input && input.closest('form');
+        const brand = navbar?.querySelector('.navbar-brand');
+        const brandIcon = brand?.querySelector('svg');
+        const searchInput = navbar?.querySelector('.search-input');
+        const input = searchInput?.querySelector('input[type="search"], input');
+        const form = input?.closest('form') ?? null;
         if (!navbar || !brandIcon || !searchInput || !input)
             return false;
         mountedInput = input;
@@ -832,7 +861,7 @@
                 const wasActive = activeMode;
                 mount();
                 if (wasActive && mountedInput) {
-                    document.body.classList.add(ACTIVE_CLASS);
+                    document.body.classList.add(ACTIVE_CLASS, LEGACY_ACTIVE_CLASS);
                     mountedInput.placeholder = 'Find user...';
                 }
             }, 100);
