@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const { USERSCRIPT_METADATA } = require('../userscript.metadata.cjs');
 
-const scriptPath = 'WTR Lab Stalker.user.js';
+const scriptPath = 'dist/wtr-lab-stalker.user.js';
 const script = fs.readFileSync(scriptPath, 'utf8');
 const required = [
     '@name',

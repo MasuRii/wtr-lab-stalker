@@ -25,7 +25,10 @@ pnpm-debug.log*
 
 # Dependency and build output
 node_modules/
-dist/
+dist/*
+!dist/
+!dist/*.user.js
+!dist/*.meta.js
 build/
 coverage/
 .cache/

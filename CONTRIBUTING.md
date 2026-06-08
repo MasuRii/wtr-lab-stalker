@@ -6,7 +6,7 @@ Thanks for helping improve WTR Lab Stalker.
 
 - Keep the runtime userscript lightweight.
 - Preserve the single-file `.user.js` distribution output.
-- Make source changes under `src/` and rebuild the distributable.
+- Make runtime source changes in TypeScript under `src/`; do not add runtime `.js` files under `src/`.
 - Do not add tracking, analytics, or remote telemetry.
 - Avoid changes that interfere with WTR Lab reading pages or normal navigation when stalker mode is inactive.
 
@@ -15,7 +15,7 @@ Thanks for helping improve WTR Lab Stalker.
 Before opening a pull request, run:
 
 ```bash
-npm install
+npm ci
 npm run validate
 ```
 

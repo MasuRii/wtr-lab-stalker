@@ -9,8 +9,8 @@ const config = {
     entry: './src/index.ts',
     devtool: false,
     output: {
-        filename: 'WTR Lab Stalker.user.js',
-        path: __dirname,
+        filename: 'wtr-lab-stalker.user.js',
+        path: path.resolve(__dirname, 'dist'),
         iife: true,
     },
     module: {

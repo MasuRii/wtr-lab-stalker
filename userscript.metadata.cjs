@@ -1,7 +1,7 @@
 const USERSCRIPT_METADATA = `// ==UserScript==
 // @name         WTR Lab Stalker
 // @namespace    https://docs.scriptcat.org/en/
-// @version      0.2.4
+// @version      0.2.5
 // @description  Find WTR Lab user profiles from the navbar with a logo-activated search mode.
 // @author       MasuRii
 // @match        https://wtr-lab.com/*

@@ -15,7 +15,7 @@
 
 WTR Lab Stalker is a lightweight userscript that turns the WTR-LAB logo icon into a user-search toggle. When activated, the logo turns red and the existing navbar search field searches WTR Lab users instead of novels.
 
-[Install from Greasy Fork](https://greasyfork.org/en/scripts/576097-wtr-lab-stalker) · [Install from GitHub](https://github.com/MasuRii/wtr-lab-stalker/raw/main/WTR%20Lab%20Stalker.user.js)
+[Install from Greasy Fork](https://greasyfork.org/en/scripts/576097-wtr-lab-stalker) · [Install from GitHub](https://github.com/MasuRii/wtr-lab-stalker/raw/main/dist/wtr-lab-stalker.user.js)
 
 ## Features
 
@@ -49,7 +49,7 @@ WTR Lab Stalker is a lightweight userscript that turns the WTR-LAB logo icon int
 
 ## Compatibility
 
-- Current userscript version: `0.2.4`
+- Current userscript version: `0.2.5`
 - Target site: `https://wtr-lab.com/*`
 - Recommended managers: ScriptCat, Violentmonkey, and Stay
 - Output format: bundled JavaScript userscript generated from TypeScript source
@@ -57,10 +57,12 @@ WTR Lab Stalker is a lightweight userscript that turns the WTR-LAB logo icon int
 
 ## Development
 
-The source lives under `src/`. Webpack bundles it into the distributable userscript file:
+The runtime source lives under `src/` as TypeScript. Webpack bundles it into distributable userscript artifacts under `dist/`; do not hand-edit generated artifacts.
 
 ```bash
-npm install
+npm ci
+npm run typecheck
+npm run lint
 npm run build
 npm run validate
 ```
@@ -69,8 +71,10 @@ Important files:
 
 - `src/index.ts` - userscript runtime
 - `userscript.metadata.cjs` - userscript metadata header
-- `webpack.config.cjs` - bundles TypeScript into `WTR Lab Stalker.user.js`
+- `webpack.config.cjs` - bundles TypeScript into `dist/wtr-lab-stalker.user.js`
 - `scripts/validate-userscript.cjs` - validates generated metadata
+
+Validation standard: `npm run validate` runs TypeScript checking, ESLint with zero warnings, the Webpack build, generated userscript syntax checking, and metadata validation.
 
 ## Privacy
 

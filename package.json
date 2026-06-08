@@ -1,6 +1,6 @@
 {
   "name": "wtr-lab-stalker",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "A logo-activated userscript for searching WTR Lab users from the navbar search field.",
   "private": false,
   "license": "MIT",
@@ -9,12 +9,15 @@
   "scripts": {
     "build": "webpack --config webpack.config.cjs",
     "typecheck": "tsc --noEmit",
-    "validate": "npm run typecheck && npm run build && node --check \"WTR Lab Stalker.user.js\" && node scripts/validate-userscript.cjs"
+    "lint": "eslint src --ext .ts --max-warnings 0",
+    "validate": "npm run typecheck && npm run lint && npm run build && node --check \"dist/wtr-lab-stalker.user.js\" && node scripts/validate-userscript.cjs"
   },
   "devDependencies": {
-    "ts-loader": "^9.5.2",
-    "typescript": "^5.8.3",
-    "webpack": "^5.99.8",
-    "webpack-cli": "^6.0.1"
+    "eslint": "^10.4.1",
+    "ts-loader": "^9.6.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.60.1",
+    "webpack": "^5.107.2",
+    "webpack-cli": "^7.0.3"
   }
 }
