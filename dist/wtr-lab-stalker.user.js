@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WTR Lab Stalker
 // @namespace    https://docs.scriptcat.org/en/
-// @version      0.2.5
+// @version      0.2.6
 // @description  Find WTR Lab user profiles from the navbar with a logo-activated search mode.
 // @author       MasuRii
 // @match        https://wtr-lab.com/*
@@ -38,6 +38,8 @@
     const MAX_FALLBACK_PAGE = 50;
     const FALLBACK_SORTS = ['view', 'review_count', 'exp', 'ticket_count', 'giveaway_wins'];
     const FALLBACK_CACHE_TTL_MS = 15 * 60 * 1000;
+    const LOGO_ICON_ATTR = 'data-wtr-stalker-logo';
+    const SEARCH_FIELD_ATTR = 'data-wtr-stalker-search';
     function getErrorMessage(error, fallbackMessage) {
         return error instanceof Error ? error.message : fallbackMessage;
     }
@@ -123,24 +125,24 @@
         100% { opacity: 0; transform: translateX(260px); }
       }
 
-      nav .navbar-brand svg {
+      nav [${LOGO_ICON_ATTR}] {
         cursor: crosshair;
       }
 
-      body.${ACTIVE_CLASS} nav .navbar-brand svg {
+      body.${ACTIVE_CLASS} nav [${LOGO_ICON_ATTR}] {
         animation: wtrStalkerIgnite 760ms ease both;
       }
 
-      body.${ACTIVE_CLASS} nav .navbar-brand svg,
-      body.${ACTIVE_CLASS} nav .navbar-brand svg path {
+      body.${ACTIVE_CLASS} nav [${LOGO_ICON_ATTR}],
+      body.${ACTIVE_CLASS} nav [${LOGO_ICON_ATTR}] path {
         fill: #b11226 !important;
       }
 
-      nav .search-input {
+      nav [${SEARCH_FIELD_ATTR}] {
         position: relative;
       }
 
-      body.${ACTIVE_CLASS} nav .search-input::after {
+      body.${ACTIVE_CLASS} nav [${SEARCH_FIELD_ATTR}]::after {
         content: "";
         position: absolute;
         left: 8px;
@@ -152,19 +154,15 @@
         animation: wtrStalkerScan 1.5s ease-in-out infinite;
       }
 
-      body.${ACTIVE_CLASS} nav .search-input .form-control {
+      body.${ACTIVE_CLASS} nav [${SEARCH_FIELD_ATTR}] input {
         border-color: #b11226 !important;
         box-shadow: 0 0 0 .16rem rgba(177, 18, 38, .22) !important;
       }
 
-      body.${ACTIVE_CLASS} nav .search-input .icon,
-      body.${ACTIVE_CLASS} nav .search-input use {
+      body.${ACTIVE_CLASS} nav [${SEARCH_FIELD_ATTR}] .icon,
+      body.${ACTIVE_CLASS} nav [${SEARCH_FIELD_ATTR}] use {
         color: #b11226;
         fill: #b11226 !important;
-      }
-
-      body.${ACTIVE_CLASS} nav .search-bar > .search-result {
-        display: none !important;
       }
 
       body.${ACTIVE_CLASS} nav .${MOBILE_SEARCH_CLASS},
@@ -197,10 +195,12 @@
         z-index: 1100;
         display: none;
         overflow: hidden;
-        background: var(--bs-body-bg, #fff);
+        background: rgba(22, 22, 30, .97);
+        color: #e5e5e5;
         border: 1px solid rgba(177, 18, 38, .35);
         border-radius: .375rem;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, .16);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
+        backdrop-filter: blur(12px);
       }
 
       body.${ACTIVE_CLASS} .${SCRIPT_ID}-menu.is-open,
@@ -222,7 +222,7 @@
       }
 
       .${SCRIPT_ID}-status {
-        color: #6c757d;
+        color: rgba(255, 255, 255, .5);
       }
 
       .${SCRIPT_ID}-load-more {
@@ -242,7 +242,7 @@
       }
 
       .${SCRIPT_ID}-load-more:disabled {
-        color: #6c757d;
+        color: rgba(255, 255, 255, .5);
         cursor: wait;
       }
 
@@ -276,21 +276,26 @@
         text-overflow: ellipsis;
         white-space: nowrap;
         margin-top: .125rem;
-        color: #6c757d;
+        color: rgba(255, 255, 255, .45);
         font-size: .75rem;
       }
 
+      .dark .${SCRIPT_ID}-menu,
       [data-bs-theme="dark"] .${SCRIPT_ID}-menu {
-        background: var(--bs-dark, #212529);
+        background: rgba(22, 22, 30, .97);
         border-color: rgba(177, 18, 38, .55);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, .4);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, .5);
       }
 
+      .dark .${SCRIPT_ID}-result,
+      .dark .${SCRIPT_ID}-load-more,
       [data-bs-theme="dark"] .${SCRIPT_ID}-result,
       [data-bs-theme="dark"] .${SCRIPT_ID}-load-more {
         border-top-color: rgba(255, 255, 255, .1);
       }
 
+      .dark .${SCRIPT_ID}-result:hover,
+      .dark .${SCRIPT_ID}-result:focus,
       [data-bs-theme="dark"] .${SCRIPT_ID}-result:hover,
       [data-bs-theme="dark"] .${SCRIPT_ID}-result:focus {
         background: rgba(177, 18, 38, .2);
@@ -696,6 +701,13 @@
         return window.matchMedia('(max-width: 991.98px)').matches;
     }
     function getMobileSearchButton() {
+        // New Tailwind UI: the mobile search toggle is the only <button> in the
+        // navbar that contains a search icon (<use href="#search">).  The desktop
+        // search icon is a bare <svg>, not wrapped in a button.
+        const button = document.querySelector('nav button:has(use[href="#search"]), nav button:has(use[xlink\\:href="#search"])');
+        if (button)
+            return button;
+        // Legacy Bootstrap UI fallback.
         const icon = document.querySelector('nav .d-lg-none use[href="#search"], nav .d-lg-none use[xlink\\:href="#search"]');
         return icon ? icon.closest('button') : null;
     }
@@ -832,19 +844,54 @@
             toggleMode(event);
         }, true);
     }
+    function findBrandIcon(navbar) {
+        // New Tailwind UI: the logo is an inline <svg> with <path> children inside
+        // an <a> link.  Every other navbar SVG uses <use> icon references, so the
+        // first <path> inside an <a> reliably identifies the logo.
+        const logoPath = navbar.querySelector('a svg path');
+        if (logoPath) {
+            const svg = logoPath.closest('svg');
+            if (svg)
+                return svg;
+        }
+        // Legacy Bootstrap UI fallback.
+        const brand = navbar.querySelector('.navbar-brand');
+        return brand?.querySelector('svg') ?? null;
+    }
+    function findSearchContainer(input) {
+        // Walk up from the input to the nearest positioned ancestor so the
+        // absolutely-positioned dropdown menu anchors correctly.
+        let node = input.parentElement;
+        while (node && node !== document.documentElement) {
+            const position = window.getComputedStyle(node).position;
+            if (position === 'relative' || position === 'absolute' || position === 'fixed') {
+                return node;
+            }
+            node = node.parentElement;
+        }
+        // Fallback: use the form's parent or the input's own parent.
+        return input.closest('form')?.parentElement ?? input.parentElement;
+    }
     function mount() {
         injectStyle();
         const navbar = document.querySelector('nav');
-        const brand = navbar?.querySelector('.navbar-brand');
-        const brandIcon = brand?.querySelector('svg');
-        const searchInput = navbar?.querySelector('.search-input');
-        const input = searchInput?.querySelector('input[type="search"], input');
-        const form = input?.closest('form') ?? null;
-        if (!navbar || !brandIcon || !searchInput || !input)
+        if (!navbar)
             return false;
+        const brandIcon = findBrandIcon(navbar);
+        const input = navbar.querySelector('input[type="search"], input[aria-label="Search"], input');
+        if (!brandIcon || !input)
+            return false;
+        const searchContainer = findSearchContainer(input);
+        if (!searchContainer)
+            return false;
+        const form = input.closest('form') ?? null;
+        // Tag elements with stable data attributes so the injected CSS does not
+        // depend on site-specific class names that may change between UI updates.
+        brandIcon.setAttribute(LOGO_ICON_ATTR, '');
+        searchContainer.setAttribute(SEARCH_FIELD_ATTR, '');
         mountedInput = input;
         mountedForm = form;
-        mountedMenu = ensureMenu(searchInput);
+        mountedMenu = ensureMenu(searchContainer);
         if (!originalPlaceholder)
             originalPlaceholder = input.getAttribute('placeholder') || 'Search...';
         bindLogoIcon(brandIcon);

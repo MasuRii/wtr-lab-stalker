@@ -1,6 +1,6 @@
 {
   "name": "wtr-lab-stalker",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "A logo-activated userscript for searching WTR Lab users from the navbar search field.",
   "private": false,
   "license": "MIT",
