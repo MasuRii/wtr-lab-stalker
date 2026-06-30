@@ -1,9 +1,7 @@
-<div align="center">
-
 # WTR Lab Stalker
 
 [![Validate](https://img.shields.io/github/actions/workflow/status/MasuRii/wtr-lab-stalker/validate.yml?style=for-the-badge&label=Validate)](https://github.com/MasuRii/wtr-lab-stalker/actions/workflows/validate.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://github.com/MasuRii/wtr-lab-stalker/blob/main/LICENSE)
 [![Version](https://img.shields.io/github/package-json/v/MasuRii/wtr-lab-stalker?label=version&style=for-the-badge)](https://github.com/MasuRii/wtr-lab-stalker)
 [![Greasy Fork](https://img.shields.io/badge/Install-Greasy%20Fork-green.svg?style=for-the-badge)](https://greasyfork.org/en/scripts/576097-wtr-lab-stalker)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178c6?logo=typescript&logoColor=white&style=for-the-badge)](https://www.typescriptlang.org/)
@@ -14,9 +12,7 @@
 
 A lightweight userscript that turns the WTR-LAB logo icon into a user-search toggle. When activated, the logo turns red and the existing navbar search field searches WTR Lab users instead of novels.
 
-<img width="521" height="175" alt="WTR Lab Stalker logo activation preview" src="https://github.com/user-attachments/assets/a3ec1bee-dcee-4feb-aef9-99ab93ad7c74" />
-
-</div>
+![WTR Lab Stalker logo activation preview](https://github.com/user-attachments/assets/a3ec1bee-dcee-4feb-aef9-99ab93ad7c74)
 
 ## Features
 
@@ -46,35 +42,6 @@ A lightweight userscript that turns the WTR-LAB logo icon into a user-search tog
 4. Click **Load more relevant users** to scan more leaderboard pages for the same query.
 5. Click the logo icon again, or press Escape in the search field, to restore normal search behavior.
 
-## Building from Source
-
-**Requirements:** Node.js 20+, npm 10+
-
-```bash
-git clone https://github.com/MasuRii/wtr-lab-stalker.git
-cd wtr-lab-stalker
-npm ci
-npm run validate
-```
-
-### Validation Commands
-
-```bash
-npm run typecheck   # Type-check TypeScript without emitting
-npm run lint        # Run ESLint against src/**/*.ts
-npm run build       # Generate userscript artifacts under dist/
-npm run validate    # Standard local gate: typecheck, lint, then build
-```
-
-### Project Structure
-
-| File | What it handles |
-|------|----------------|
-| `src/index.ts` | Userscript runtime — stalker-mode search behavior |
-| `userscript.metadata.cjs` | Userscript metadata header inserted by Webpack |
-| `webpack.config.cjs` | Bundles TypeScript into `dist/wtr-lab-stalker.user.js` |
-| `scripts/validate-userscript.cjs` | Metadata validator used by `npm run validate` and CI |
-
 ## Compatibility
 
 - Target site: `https://wtr-lab.com/*`
@@ -95,5 +62,4 @@ The script does not collect analytics or send personal data to this repository o
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
-
+MIT. See [LICENSE](https://github.com/MasuRii/wtr-lab-stalker/blob/main/LICENSE).
